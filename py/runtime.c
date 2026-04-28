@@ -385,22 +385,10 @@ mp_obj_t mp_unary_op(mp_unary_op_t op, mp_obj_t arg) {
     }
 }
 
-mp_obj_t mp_binary_op_contains(mp_obj_t lhs, mp_obj_t rhs) {
-    // If type didn't support containment then explicitly walk the iterator.
-    // mp_getiter will raise the appropriate exception if lhs is not iterable.
-    mp_obj_iter_buf_t iter_buf;
-    mp_obj_t iter = mp_getiter(lhs, &iter_buf);
-    mp_obj_t next;
-    while ((next = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
-        if (mp_obj_equal(next, rhs)) {
-            return mp_const_true;
-        }
-    }
-    return mp_const_false;
-}
-
+// NOTE: this annotation makes bigloop and CLBG fannkuch Python3 #8 faster, but
+// makes Laurie's LLM-generated mandelbrot benchmark slower.
 #ifdef USE_YK
-__attribute__((yk_indirect_inline, yk_unroll))
+__attribute__((yk_unroll))
 #endif
 mp_obj_t mp_binary_op(mp_binary_op_t op, mp_obj_t lhs, mp_obj_t rhs) {
     DEBUG_OP_printf("binary " UINT_FMT " %q %p %p\n", op, mp_binary_op_method_name[op], lhs, rhs);
@@ -653,11 +641,7 @@ mp_obj_t mp_binary_op(mp_binary_op_t op, mp_obj_t lhs, mp_obj_t rhs) {
 generic_binary_op:
     type = mp_obj_get_type(lhs);
     if (MP_OBJ_TYPE_HAS_SLOT(type, binary_op)) {
-#ifdef USE_YK
-        mp_obj_t result = ((mp_binary_op_fun_t) yk_promote((void *) MP_OBJ_TYPE_GET_SLOT(type, binary_op)))(op, lhs, rhs);
-#else
         mp_obj_t result = MP_OBJ_TYPE_GET_SLOT(type, binary_op)(op, lhs, rhs);
-#endif
         if (result != MP_OBJ_NULL) {
             return result;
         }
@@ -689,7 +673,17 @@ generic_binary_op:
     #endif
 
     if (op == MP_BINARY_OP_CONTAINS) {
-        return mp_binary_op_contains(lhs, rhs);
+        // If type didn't support containment then explicitly walk the iterator.
+        // mp_getiter will raise the appropriate exception if lhs is not iterable.
+        mp_obj_iter_buf_t iter_buf;
+        mp_obj_t iter = mp_getiter(lhs, &iter_buf);
+        mp_obj_t next;
+        while ((next = mp_iternext(iter)) != MP_OBJ_STOP_ITERATION) {
+            if (mp_obj_equal(next, rhs)) {
+                return mp_const_true;
+            }
+        }
+        return mp_const_false;
     }
 
 unsupported_op:
